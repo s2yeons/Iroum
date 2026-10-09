@@ -237,7 +237,7 @@ function QuestionScreen({
         <div
           role={multi ? "group" : "radiogroup"}
           aria-label={q.title}
-          className={`mt-6 ${q.grid ? "grid grid-cols-2 gap-2.5" : "space-y-3"}`}
+          className={`mt-6 ${q.grid ? "grid grid-cols-2 gap-2.5 sm:grid-cols-3" : "space-y-3"}`}
         >
           {q.options.map((o) => {
             const sel = isSelected(o.value);
@@ -249,7 +249,7 @@ function QuestionScreen({
                 aria-checked={sel}
                 onClick={() => select(o.value)}
                 className={`option ${q.grid ? "min-h-14 justify-center px-3 text-center text-[0.95rem]" : ""} ${
-                  o.value === "unknown" && q.grid ? "col-span-2" : ""
+                  o.value === "unknown" && q.grid ? "col-span-2 sm:col-span-1" : ""
                 }`}
               >
                 {o.icon && (
@@ -328,9 +328,10 @@ function Results({ answers, onRestart }: { answers: Answers; onRestart: () => vo
     " 최종 결정은 주민센터에서 해요.";
 
   return (
-    <Page>
+    <Page width="wide">
       <AutoSpeak text={speech} />
-      <section className="rise relative overflow-hidden rounded-[1.75rem] bg-gradient-to-br from-lime-soft to-white p-6 shadow-[0_0_0_1px_var(--line)]">
+      <section className="rise relative overflow-hidden rounded-[1.75rem] bg-gradient-to-br from-lime-soft to-white p-6 shadow-[0_0_0_1px_var(--line)] sm:p-8 lg:grid lg:grid-cols-[1fr_auto] lg:items-end lg:gap-8 lg:p-10">
+        <div>
         <p className="text-[1.05rem] font-bold text-lime-deep">해당될 수 있는 혜택</p>
         <p className="mt-1 flex items-baseline gap-1">
           <span className="text-[3rem] font-extrabold leading-none tracking-tight">{matched.length}</span>
@@ -346,7 +347,8 @@ function Results({ answers, onRestart }: { answers: Answers; onRestart: () => vo
             ))}
           </ul>
         )}
-        <div className="mt-5">
+        </div>
+        <div className="mt-5 lg:mt-0">
           <SpeakButton text={speech} label="결과 읽어 주세요" />
         </div>
       </section>
@@ -356,7 +358,7 @@ function Results({ answers, onRestart }: { answers: Answers; onRestart: () => vo
           골라 주신 답으로는 찾은 혜택이 없어요. 그래도 주민센터나 129에 물어보면 다른 지원을 찾을 수 있어요.
         </p>
       ) : (
-        <div className="mt-8 space-y-10">
+        <div className="mt-8 space-y-10 lg:mt-12 lg:space-y-14">
           {GROUPS.map((g) => {
             const items = matched.filter((p) => g.ids.includes(p.id));
             if (items.length === 0) return null;
@@ -367,7 +369,7 @@ function Results({ answers, onRestart }: { answers: Answers; onRestart: () => vo
                   <span className="rounded-full bg-lime px-2.5 text-sm font-extrabold text-lime-ink">{items.length}</span>
                 </h2>
                 <p className="mt-0.5 text-base text-muted">{g.sub}</p>
-                <ul className="mt-4 space-y-3">
+                <ul className="mt-4 grid gap-3 sm:grid-cols-2 lg:gap-4 xl:grid-cols-3">
                   {items.map((p, i) => (
                     <ProgramCard key={p.id} p={p} delay={80 + i * 50} />
                   ))}
@@ -382,7 +384,7 @@ function Results({ answers, onRestart }: { answers: Answers; onRestart: () => vo
         <section className="mt-10">
           <h2 className="title-lg">이미 받고 계신 혜택</h2>
           <p className="mt-1 text-base text-muted">준비물과 문의처를 다시 볼 수 있어요.</p>
-          <ul className="mt-4 space-y-3">
+          <ul className="mt-4 grid gap-3 sm:grid-cols-2 lg:gap-4 xl:grid-cols-3">
             {alreadyHas.map((p) => (
               <ProgramCard key={p.id} p={p} muted />
             ))}
@@ -390,7 +392,7 @@ function Results({ answers, onRestart }: { answers: Answers; onRestart: () => vo
         </section>
       )}
 
-      <button type="button" onClick={onRestart} className="btn btn-ghost mt-6">
+      <button type="button" onClick={onRestart} className="btn btn-ghost mx-auto mt-8 sm:w-auto sm:px-8">
         <Refresh className="h-5 w-5" />
         처음부터 다시 답하기
       </button>

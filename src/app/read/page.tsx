@@ -155,7 +155,7 @@ export default function ReadPage() {
   return (
     <>
       <TopBar onBack={backFromStage} title={titles[stage.kind]} />
-      <Page>
+      <Page width={stage.kind === "result" ? "wide" : stage.kind === "choose" || stage.kind === "edit" ? "medium" : "narrow"}>
         {stage.kind === "choose" && (
           <div className="rise">
             <AutoSpeak text="안내문 쉽게 읽기. 사진 찍기, PDF 올리기, 글 붙여넣기 중에서 골라 주세요." />
@@ -169,7 +169,7 @@ export default function ReadPage() {
 
             {inputError && <ErrorBox>{inputError}</ErrorBox>}
 
-            <div className="mt-7 space-y-3">
+            <div className="mt-7 grid gap-3 lg:mt-10 lg:grid-cols-3 lg:gap-4">
               <BigChoice
                 icon={<IllCamera className="h-12 w-12" />}
                 title="사진 찍어 올리기"
@@ -319,160 +319,180 @@ function ResultView({
   return (
     <>
       <AutoSpeak text={speech} />
-      <section className="rise">
-        <span className="chip">
-          <Check className="h-4 w-4" />
-          {r.mode === "rule" ? "원문 문장을 그대로 골라 정리했어요" : "원문에 있는 내용만 정리했어요"}
-        </span>
-        <h1 className="title-xl mt-3">{r.title}</h1>
-        <div className="mt-5">
-          <SpeakButton text={speech} />
+      {/* 휴대폰은 한 줄(order 순서), 넓은 화면은 왼쪽 설명 + 오른쪽 기한·챙길 것 */}
+      <div className="flex flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_25rem] lg:items-start lg:gap-12">
+        <div className="contents lg:block">
+          <div className="order-1">
+            <section className="rise">
+              <span className="chip">
+                <Check className="h-4 w-4" />
+                {r.mode === "rule" ? "원문 문장을 그대로 골라 정리했어요" : "원문에 있는 내용만 정리했어요"}
+              </span>
+              <h1 className="title-xl mt-3 lg:text-[2.2rem]">{r.title}</h1>
+              <div className="mt-5">
+                <SpeakButton text={speech} />
+              </div>
+            </section>
+          </div>
+          <div className="order-2">
+            {r.mode === "rule" && (
+              <p className="mt-6 flex gap-3 rounded-2xl bg-surface p-4 text-base text-muted">
+                <Info className="mt-0.5 h-5 w-5 shrink-0 text-lime-deep" />
+                지금은 AI를 쓸 수 없어서, 안내문의 문장을 그대로 골라 항목별로 나눴어요. 색칠된 낱말을 누르면 쉬운 뜻이 나와요.
+              </p>
+            )}
+          </div>
+          <div className="order-3">
+            <section className="rise mt-7 rounded-[1.75rem] bg-lime-soft p-6" style={{ animationDelay: "60ms" }}>
+              <SectionTitle>쉽게 말하면</SectionTitle>
+              {r.easy_summary.length ? (
+                <ul className="space-y-3 text-[1.05rem]">
+                  {r.easy_summary.map((s, i) => (
+                    <li key={i} className="flex gap-3">
+                      <span className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-lime text-lime-ink">
+                        <Check className="h-4 w-4" />
+                      </span>
+                      <span>
+                        <GlossaryText text={s} extra={r.terms} />
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <NotInDoc />
+              )}
+            </section>
+          </div>
+          <div className="order-5">
+            <Section title="누가 해당되나요">
+              {r.conditions.length ? <QuotedList items={r.conditions} terms={r.terms} /> : <NotInDoc />}
+            </Section>
+          </div>
+          <div className="order-7">
+            <Section title="신청 순서">
+              {r.steps.length ? (
+                <ol className="relative space-y-5">
+                  {r.steps.map((s, i) => (
+                    <li key={i} className="relative flex gap-4">
+                      {i < r.steps.length - 1 && (
+                        <span aria-hidden="true" className="absolute left-[1.15rem] top-10 h-[calc(100%-1rem)] w-0.5 bg-surface-strong" />
+                      )}
+                      <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-lime text-[1.05rem] font-extrabold text-lime-ink">
+                        {i + 1}
+                      </span>
+                      <span className="pt-1.5 text-[1.05rem] font-medium">
+                        <GlossaryText text={s.easy} extra={r.terms} />
+                        <Quote text={s.source_quote} />
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <NotInDoc />
+              )}
+            </Section>
+          </div>
+          <div className="order-8">
+            {r.removed.length > 0 && (
+              <div role="note" className="mt-8 flex gap-3 rounded-3xl bg-warn-bg p-5 text-warn-ink">
+                <Alert className="h-7 w-7 shrink-0" />
+                <div>
+                  <p className="text-[1.05rem] font-extrabold">원문을 확인하세요</p>
+                  <p className="mt-1 text-base">
+                    원문에서 근거를 찾지 못한 설명 {r.removed.length}개는 틀릴 수 있어서 빼 두었어요. 안내문을 직접 보거나
+                    주민센터에 물어보세요.
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="order-9">
+            {linked.map((p) => (
+              <section key={p.id} className="card mt-8">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-lime-soft">
+                    <ProgramIcon id={p.id} className="h-9 w-9" />
+                  </span>
+                  <div>
+                    <p className="text-sm font-bold text-lime-deep">공식 자료에서 찾았어요</p>
+                    <h2 className="text-[1.15rem] font-extrabold">{p.name} 공식 기준</h2>
+                  </div>
+                </div>
+                <p className="mt-3 text-base text-muted">안내문과 다른 점이 있으면 공식 기준을 확인하세요. (확인일 {CHECKED_AT})</p>
+                <ul className="mt-3 space-y-1.5 text-[1.05rem]">
+                  {p.official.eligibility.map((e) => (
+                    <li key={e} className="flex gap-2.5">
+                      <span aria-hidden="true" className="mt-[0.7em] h-1.5 w-1.5 shrink-0 rounded-full bg-subtle" />
+                      <span>
+                        <GlossaryText text={e} />
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <a href={`/benefits/${p.id}`} className="btn btn-secondary mt-5">
+                  준비물·신청 방법 자세히 보기 <ChevronRight className="h-5 w-5" />
+                </a>
+              </section>
+            ))}
+          </div>
+          <div className="order-10">
+            <details className="no-print group mt-8 rounded-3xl bg-surface">
+              <summary className="flex min-h-16 cursor-pointer list-none items-center justify-between px-5 text-[1.05rem] font-bold">
+                원문 전체 보기
+                <ChevronRight className="h-5 w-5 transition-transform group-open:rotate-90" />
+              </summary>
+              <p className="whitespace-pre-wrap px-5 pb-5 text-base leading-relaxed">
+                <GlossaryText text={source} extra={r.terms} />
+              </p>
+            </details>
+          </div>
+          <div className="order-13">
+            <Disclaimer checkedAt={linked.length ? CHECKED_AT : undefined} sources={linked.flatMap((p) => p.sources)} />
+            {r.cached && <p className="mt-3 text-center text-sm text-muted">전에 읽은 안내문이라 저장된 설명을 보여 드려요.</p>}
+          </div>
         </div>
-      </section>
-
-      {r.mode === "rule" && (
-        <p className="mt-6 flex gap-3 rounded-2xl bg-surface p-4 text-base text-muted">
-          <Info className="mt-0.5 h-5 w-5 shrink-0 text-lime-deep" />
-          지금은 AI를 쓸 수 없어서, 안내문의 문장을 그대로 골라 항목별로 나눴어요. 색칠된 낱말을 누르면 쉬운 뜻이 나와요.
-        </p>
-      )}
-
-      <section className="rise mt-7 rounded-[1.75rem] bg-lime-soft p-6" style={{ animationDelay: "60ms" }}>
-        <SectionTitle>쉽게 말하면</SectionTitle>
-        {r.easy_summary.length ? (
-          <ul className="space-y-3 text-[1.05rem]">
-            {r.easy_summary.map((s, i) => (
-              <li key={i} className="flex gap-3">
-                <span className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-lime text-lime-ink">
-                  <Check className="h-4 w-4" />
-                </span>
-                <span>
-                  <GlossaryText text={s} extra={r.terms} />
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <NotInDoc />
-        )}
-      </section>
-
-      {(r.deadline || r.contact) && (
-        <dl className="mt-3 grid grid-cols-2 gap-3">
-          <div className="card-soft p-4">
-            <dt className="text-sm font-bold text-muted">기한</dt>
-            <dd className="mt-1 text-base font-extrabold leading-snug">{r.deadline?.easy ?? "안내문에 없어요"}</dd>
+        <aside className="contents lg:block" aria-label="기한과 챙길 것">
+          <div className="order-4">
+            {(r.deadline || r.contact) && (
+              <dl className="mt-3 grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 lg:mt-0">
+                <div className="card-soft p-4">
+                  <dt className="text-sm font-bold text-muted">기한</dt>
+                  <dd className="mt-1 text-base font-extrabold leading-snug">{r.deadline?.easy ?? "안내문에 없어요"}</dd>
+                </div>
+                <div className="card-soft p-4">
+                  <dt className="text-sm font-bold text-muted">물어볼 곳</dt>
+                  <dd className="mt-1 text-base font-extrabold leading-snug">
+                    {r.contact ? <TelLinks text={r.contact.easy} /> : "안내문에 없어요"}
+                  </dd>
+                </div>
+              </dl>
+            )}
           </div>
-          <div className="card-soft p-4">
-            <dt className="text-sm font-bold text-muted">물어볼 곳</dt>
-            <dd className="mt-1 text-base font-extrabold leading-snug">
-              {r.contact ? <TelLinks text={r.contact.easy} /> : "안내문에 없어요"}
-            </dd>
+          <div className="order-6">
+            <Section title="챙길 것" className="lg:card lg:mt-6">
+              {r.documents.length ? (
+                <>
+                  <Checklist
+                    storageKey={`doc-${hash.slice(0, 16)}`}
+                    items={r.documents.map((d, i) => ({ id: String(i), text: d.easy }))}
+                    source="안내문 원문 (아래 '원문 근거 보기')"
+                  />
+                  <QuoteDetails items={r.documents} />
+                </>
+              ) : (
+                <NotInDoc />
+              )}
+            </Section>
           </div>
-        </dl>
-      )}
+          <div className="order-11">
+            <ShareBar title={r.title} text={shareText} />
 
-      <Section title="누가 해당되나요">
-        {r.conditions.length ? <QuotedList items={r.conditions} terms={r.terms} /> : <NotInDoc />}
-      </Section>
-
-      <Section title="챙길 것">
-        {r.documents.length ? (
-          <>
-            <Checklist
-              storageKey={`doc-${hash.slice(0, 16)}`}
-              items={r.documents.map((d, i) => ({ id: String(i), text: d.easy }))}
-              source="안내문 원문 (아래 '원문 근거 보기')"
-            />
-            <QuoteDetails items={r.documents} />
-          </>
-        ) : (
-          <NotInDoc />
-        )}
-      </Section>
-
-      <Section title="신청 순서">
-        {r.steps.length ? (
-          <ol className="relative space-y-5">
-            {r.steps.map((s, i) => (
-              <li key={i} className="relative flex gap-4">
-                {i < r.steps.length - 1 && (
-                  <span aria-hidden="true" className="absolute left-[1.15rem] top-10 h-[calc(100%-1rem)] w-0.5 bg-surface-strong" />
-                )}
-                <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-lime text-[1.05rem] font-extrabold text-lime-ink">
-                  {i + 1}
-                </span>
-                <span className="pt-1.5 text-[1.05rem] font-medium">
-                  <GlossaryText text={s.easy} extra={r.terms} />
-                  <Quote text={s.source_quote} />
-                </span>
-              </li>
-            ))}
-          </ol>
-        ) : (
-          <NotInDoc />
-        )}
-      </Section>
-
-      {r.removed.length > 0 && (
-        <div role="note" className="mt-8 flex gap-3 rounded-3xl bg-warn-bg p-5 text-warn-ink">
-          <Alert className="h-7 w-7 shrink-0" />
-          <div>
-            <p className="text-[1.05rem] font-extrabold">원문을 확인하세요</p>
-            <p className="mt-1 text-base">
-              원문에서 근거를 찾지 못한 설명 {r.removed.length}개는 틀릴 수 있어서 빼 두었어요. 안내문을 직접 보거나
-              주민센터에 물어보세요.
-            </p>
+            <button type="button" onClick={onReset} className="btn btn-ghost no-print mt-3">
+              <Refresh className="h-5 w-5" /> 다른 안내문 읽기
+            </button>
           </div>
-        </div>
-      )}
-
-      {linked.map((p) => (
-        <section key={p.id} className="card mt-8">
-          <div className="flex items-center gap-3">
-            <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-lime-soft">
-              <ProgramIcon id={p.id} className="h-9 w-9" />
-            </span>
-            <div>
-              <p className="text-sm font-bold text-lime-deep">공식 자료에서 찾았어요</p>
-              <h2 className="text-[1.15rem] font-extrabold">{p.name} 공식 기준</h2>
-            </div>
-          </div>
-          <p className="mt-3 text-base text-muted">안내문과 다른 점이 있으면 공식 기준을 확인하세요. (확인일 {CHECKED_AT})</p>
-          <ul className="mt-3 space-y-1.5 text-[1.05rem]">
-            {p.official.eligibility.map((e) => (
-              <li key={e} className="flex gap-2.5">
-                <span aria-hidden="true" className="mt-[0.7em] h-1.5 w-1.5 shrink-0 rounded-full bg-subtle" />
-                <span>
-                  <GlossaryText text={e} />
-                </span>
-              </li>
-            ))}
-          </ul>
-          <a href={`/benefits/${p.id}`} className="btn btn-secondary mt-5">
-            준비물·신청 방법 자세히 보기 <ChevronRight className="h-5 w-5" />
-          </a>
-        </section>
-      ))}
-
-      <details className="no-print group mt-8 rounded-3xl bg-surface">
-        <summary className="flex min-h-16 cursor-pointer list-none items-center justify-between px-5 text-[1.05rem] font-bold">
-          원문 전체 보기
-          <ChevronRight className="h-5 w-5 transition-transform group-open:rotate-90" />
-        </summary>
-        <p className="whitespace-pre-wrap px-5 pb-5 text-base leading-relaxed">
-          <GlossaryText text={source} extra={r.terms} />
-        </p>
-      </details>
-
-      <ShareBar title={r.title} text={shareText} />
-
-      <button type="button" onClick={onReset} className="btn btn-ghost no-print mt-3">
-        <Refresh className="h-5 w-5" /> 다른 안내문 읽기
-      </button>
-
-      <Disclaimer checkedAt={linked.length ? CHECKED_AT : undefined} sources={linked.flatMap((p) => p.sources)} />
-      {r.cached && <p className="mt-3 text-center text-sm text-muted">전에 읽은 안내문이라 저장된 설명을 보여 드려요.</p>}
+        </aside>
+      </div>
     </>
   );
 }
@@ -506,9 +526,9 @@ function FallbackView({ error, source, onRetry }: { error: string; source: strin
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, children, className = "" }: { title: string; children: React.ReactNode; className?: string }) {
   return (
-    <section className="mt-10">
+    <section className={`mt-10 ${className}`}>
       <SectionTitle>{title}</SectionTitle>
       {children}
     </section>
@@ -603,18 +623,18 @@ function BigChoice({
     <button
       type="button"
       onClick={onClick}
-      className={`group flex min-h-24 w-full items-center gap-4 rounded-3xl p-4 pr-3 text-left transition-[background-color,transform] active:scale-[0.99] ${
+      className={`group flex min-h-24 w-full items-center gap-4 rounded-3xl p-4 pr-3 text-left transition-[background-color,transform] active:scale-[0.99] lg:h-full lg:min-h-56 lg:flex-col lg:items-start lg:justify-between lg:p-7 ${
         primary ? "bg-lime text-lime-ink hover:bg-lime-strong" : "bg-surface hover:bg-surface-strong"
       }`}
     >
       <span className={`flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl ${primary ? "bg-white/70" : "bg-white"}`}>
         {icon}
       </span>
-      <span className="flex-1">
+      <span className="flex-1 lg:flex-none">
         <span className="block text-[1.15rem] font-extrabold">{title}</span>
         <span className={`mt-0.5 block text-base ${primary ? "" : "text-muted"}`}>{sub}</span>
       </span>
-      <ChevronRight className="h-6 w-6 shrink-0 opacity-60 transition-transform group-hover:translate-x-0.5" />
+      <ChevronRight className="h-6 w-6 shrink-0 opacity-60 transition-transform group-hover:translate-x-0.5 lg:hidden" />
     </button>
   );
 }

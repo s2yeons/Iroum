@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { OfflineBanner, ServiceWorkerRegister } from "@/components/pwa";
 import { SettingsProvider } from "@/components/settings";
+import { SiteFooter } from "@/components/site-footer";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -28,12 +29,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css"
         />
       </head>
-      <body className="min-h-full md:bg-surface">
-        {/* 넓은 화면에서는 가운데 앱 기둥처럼 보이게 한다 */}
-        <div className="mx-auto flex min-h-dvh w-full max-w-[40rem] flex-col bg-white page-glow md:shadow-[0_0_0_1px_var(--line),0_20px_60px_-30px_rgba(25,31,40,0.25)]">
+      <body className="page-glow min-h-full">
+        <div className="flex min-h-dvh w-full flex-col">
           <SettingsProvider>
             <OfflineBanner />
             {children}
+            <SiteFooter />
           </SettingsProvider>
           <ServiceWorkerRegister />
         </div>

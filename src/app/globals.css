@@ -157,20 +157,6 @@ h3 {
     color: var(--lime-ink);
   }
 
-  /* 카드 */
-  .card {
-    border-radius: 1.5rem;
-    background: var(--background);
-    padding: 1.5rem;
-    box-shadow:
-      0 0 0 1px var(--line),
-      0 6px 24px -12px rgb(25 31 40 / 0.12);
-  }
-  .card-soft {
-    border-radius: 1.5rem;
-    background: var(--surface);
-    padding: 1.5rem;
-  }
 
   /* 작은 꼬리표 */
   .chip {
@@ -184,6 +170,21 @@ h3 {
     font-weight: 700;
     color: var(--lime-deep);
   }
+}
+
+/* 카드 — @utility라서 lg:card 처럼 화면 크기별로도 쓸 수 있다 */
+@utility card {
+  border-radius: 1.5rem;
+  background: var(--background);
+  padding: 1.5rem;
+  box-shadow:
+    0 0 0 1px var(--line),
+    0 6px 24px -12px rgb(25 31 40 / 0.12);
+}
+@utility card-soft {
+  border-radius: 1.5rem;
+  background: var(--surface);
+  padding: 1.5rem;
 }
 
 /* 화면 아래 고정 버튼 영역 (토스식) */

@@ -7,7 +7,7 @@
  *
  * 내용을 바꾸면 VERSION을 올려 예전 저장본을 지운다.
  */
-const VERSION = "iroum-v2";
+const VERSION = "iroum-v3";
 const PAGES = `${VERSION}-pages`;
 const ASSETS = `${VERSION}-assets`;
 

@@ -22,15 +22,15 @@ export function VoiceTile() {
   return (
     <Link
       href="/voice"
-      className="flex min-h-24 items-center gap-4 rounded-[1.5rem] bg-surface px-5 py-4 transition-[background-color,transform] hover:bg-surface-strong active:scale-[0.99]"
+      className="relative flex min-h-24 items-center gap-4 rounded-3xl bg-surface px-5 py-4 transition-[background-color,transform] hover:bg-surface-strong active:scale-[0.99] lg:h-full lg:min-h-52 lg:flex-col lg:items-start lg:justify-between lg:p-7"
     >
       <IllVoice className="h-14 w-14 shrink-0" />
-      <span className="flex-1">
+      <span className="flex-1 lg:flex-none">
         <span className="block text-[1.1rem] font-extrabold">음성으로 안내받기</span>
         <span className="mt-0.5 block text-[0.85rem] font-medium text-muted">설명을 듣고 따라 해요</span>
       </span>
       <span
-        className={`rounded-full px-3 py-1 text-sm font-extrabold ${
+        className={`rounded-full px-3 py-1 text-sm font-extrabold lg:absolute lg:right-6 lg:top-6 ${
           voiceGuide ? "bg-lime text-lime-ink" : "bg-white text-muted shadow-[0_0_0_1px_var(--line)]"
         }`}
       >

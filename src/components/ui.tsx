@@ -1,14 +1,39 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import { ChevronLeft, Info, Phone, TextSize } from "./icons";
+import { Logo } from "./logo";
 import { useSettings } from "./settings";
 
-/** 모든 화면 위쪽: 왼쪽 "이전" + 가운데 제목 + 오른쪽 "글씨 크게"(상시 노출) */
-export function TopBar({ onBack, backHref, title }: { onBack?: () => void; backHref?: string; title?: string }) {
-  const router = useRouter();
+const NAV = [
+  { href: "/find", label: "지원금 찾기" },
+  { href: "/read", label: "안내문 읽기" },
+  { href: "/benefits", label: "신청 방법" },
+  { href: "/voice", label: "음성 안내" },
+];
 
-  const back = () => {
+/**
+ * 모든 화면 위쪽 머리글.
+ * - 휴대폰: 왼쪽 큰 "이전" + 가운데 화면 이름 + 오른쪽 "글씨 크게"
+ * - 넓은 화면: 로고 + 위 메뉴(지금 화면 표시) + "글씨 크게"
+ * 첫 화면은 back 없이 로고만 쓴다.
+ */
+export function TopBar({
+  onBack,
+  backHref,
+  title,
+  back = true,
+}: {
+  onBack?: () => void;
+  backHref?: string;
+  title?: string;
+  back?: boolean;
+}) {
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const goBack = () => {
     if (onBack) return onBack();
     if (backHref) return router.push(backHref);
     if (window.history.length > 1) router.back();
@@ -16,17 +41,41 @@ export function TopBar({ onBack, backHref, title }: { onBack?: () => void; backH
   };
 
   return (
-    <header className="no-print sticky top-0 z-30 bg-white/70 backdrop-blur-xl">
-      <div className="mx-auto grid max-w-xl grid-cols-[auto_1fr_auto] items-center gap-2 px-3 py-2">
-        <button
-          type="button"
-          onClick={back}
-          className="flex min-h-14 items-center gap-0.5 rounded-2xl pl-2 pr-4 text-[1.05rem] font-bold active:bg-surface"
-        >
-          <ChevronLeft className="h-7 w-7" />
-          이전
-        </button>
-        <p className="truncate text-center text-base font-bold text-muted">{title}</p>
+    <header className="no-print sticky top-0 z-30 border-b border-transparent bg-white/75 backdrop-blur-xl lg:border-line">
+      <div className="mx-auto flex max-w-6xl items-center gap-2 px-3 py-2 sm:px-6 lg:gap-6 lg:px-8">
+        {back && (
+          <button
+            type="button"
+            onClick={goBack}
+            className="flex min-h-14 shrink-0 items-center gap-0.5 rounded-2xl pl-2 pr-4 text-[1.05rem] font-bold hover:bg-surface active:bg-surface lg:hidden"
+          >
+            <ChevronLeft className="h-7 w-7" />
+            이전
+          </button>
+        )}
+        <div className={back ? "hidden lg:block" : ""}>
+          <Logo />
+        </div>
+        <p className={`min-w-0 flex-1 truncate text-center text-base font-bold text-muted lg:hidden ${back ? "" : "invisible"}`}>
+          {title}
+        </p>
+        <nav aria-label="주요 메뉴" className="hidden flex-1 items-center gap-1 lg:flex">
+          {NAV.map((n) => {
+            const active = pathname === n.href || pathname.startsWith(`${n.href}/`);
+            return (
+              <Link
+                key={n.href}
+                href={n.href}
+                aria-current={active ? "page" : undefined}
+                className={`flex min-h-12 items-center rounded-xl px-4 text-[0.95rem] font-bold transition-colors ${
+                  active ? "bg-lime-soft text-lime-ink" : "text-muted hover:bg-surface hover:text-foreground"
+                }`}
+              >
+                {n.label}
+              </Link>
+            );
+          })}
+        </nav>
         <FontToggle />
       </div>
     </header>
@@ -41,18 +90,38 @@ export function FontToggle() {
       onClick={() => update({ largeFont: !largeFont })}
       aria-pressed={largeFont}
       aria-label={largeFont ? "글씨 보통으로" : "글씨 크게 보기"}
-      className={`flex min-h-14 items-center gap-1.5 rounded-2xl px-3.5 text-[0.95rem] font-bold transition-colors ${
+      className={`flex min-h-14 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-2xl px-3 text-[0.95rem] font-bold transition-colors min-[380px]:px-3.5 ${
         largeFont ? "bg-lime text-lime-ink" : "bg-surface text-foreground"
       }`}
     >
       <TextSize className="h-6 w-7" />
-      {largeFont ? "보통 글씨" : "글씨 크게"}
+      {/* 아주 좁은 휴대폰에서는 짧게 */}
+      <span className="max-[379px]:hidden">{largeFont ? "보통 글씨" : "글씨 크게"}</span>
+      <span className="min-[380px]:hidden">{largeFont ? "보통" : "크게"}</span>
     </button>
   );
 }
 
-export function Page({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  return <main className={`mx-auto w-full max-w-xl flex-1 px-4 pb-10 pt-4 ${className}`}>{children}</main>;
+const WIDTH = {
+  narrow: "max-w-xl", // 질문·설정처럼 한 가지에 집중하는 화면
+  medium: "max-w-4xl",
+  wide: "max-w-6xl", // 목록·상세처럼 넓게 펼쳐 보는 화면
+};
+
+export function Page({
+  children,
+  className = "",
+  width = "narrow",
+}: {
+  children: React.ReactNode;
+  className?: string;
+  width?: keyof typeof WIDTH;
+}) {
+  return (
+    <main className={`mx-auto w-full flex-1 px-4 pb-12 pt-4 sm:px-6 lg:px-8 lg:pt-10 ${WIDTH[width]} ${className}`}>
+      {children}
+    </main>
+  );
 }
 
 /** 표현 원칙: 단정하지 않고, 확인할 곳을 항상 함께 보여 준다. */

@@ -23,9 +23,9 @@ export function BrandMark({ className = "h-9 w-9" }: { className?: string }) {
 
 export function Logo() {
   return (
-    <Link href="/" className="flex min-h-14 items-center gap-2.5 pr-2" aria-label="Iroum 처음 화면">
+    <Link href="/" className="flex min-h-14 shrink-0 items-center gap-2.5 pr-2" aria-label="Iroum 처음 화면">
       <BrandMark />
-      <span className="text-[1.25rem] font-extrabold tracking-[-0.03em]">Iroum</span>
+      <span className="whitespace-nowrap text-[1.25rem] font-extrabold tracking-[-0.03em]">Iroum</span>
     </Link>
   );
 }
