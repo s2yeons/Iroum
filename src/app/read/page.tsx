@@ -34,8 +34,22 @@ type Stage =
   | { kind: "extracting"; ratio: number; label: string }
   | { kind: "edit"; from: "photo" | "pdf" | "paste" }
   | { kind: "simplifying" }
-  | { kind: "result"; result: SimplifyResult; hash: string }
+  | { kind: "result"; result: SimplifyResult; hash: string; aiPending?: boolean }
   | { kind: "fallback"; error: string };
+
+/** AI 없는 모드: 원문 문장을 그대로 골라 정리한다. 찾은 것이 없으면 null. */
+function ruleResult(source: string): SimplifyResult | null {
+  const { verified, removed } = verifyAgainstSource(ruleSimplify(source), source);
+  const found =
+    verified.conditions.length + verified.documents.length + verified.steps.length > 0 ||
+    verified.deadline !== null ||
+    verified.contact !== null;
+  if (!found) return null;
+  const linkedProgramIds = findProgramsInText(`${verified.title}\n${source}`)
+    .slice(0, 2)
+    .map((p) => p.id);
+  return { ...verified, removed, linkedProgramIds, cached: false, mode: "rule" };
+}
 
 const RESULT_CACHE_KEY = "swb:simplify-cache";
 const CACHE_MAX = 20;
@@ -70,6 +84,14 @@ export default function ReadPage() {
     }
   };
 
+  // 화면을 떠났다가 늦게 도착한 AI 결과가 다른 안내문 화면을 덮지 않게 요청마다 번호를 붙인다.
+  const requestId = useRef(0);
+
+  /**
+   * 1) AI 없는 모드 결과를 바로 보여 주고
+   * 2) 뒤에서 AI를 기다렸다가 도착하면 AI 결과로 바꾼다.
+   * 무료 AI는 1분 가까이 걸릴 수 있어서, 어르신이 빈 화면을 오래 보지 않게 한다.
+   */
   const simplify = async () => {
     const source = text.trim();
     if (source.length < 20) {
@@ -77,6 +99,7 @@ export default function ReadPage() {
       return;
     }
     setInputError(null);
+    const id = ++requestId.current;
     setStage({ kind: "simplifying" });
 
     // 같은 문서는 다시 AI를 부르지 않는다(기기 안 캐시 → 서버 캐시 순서).
@@ -87,6 +110,10 @@ export default function ReadPage() {
       return;
     }
 
+    const rule = ruleResult(source);
+    if (rule) setStage({ kind: "result", result: rule, hash, aiPending: true });
+
+    let error = "인터넷 연결을 확인해 주세요.";
     try {
       const res = await fetch("/api/simplify", {
         method: "POST",
@@ -94,47 +121,33 @@ export default function ReadPage() {
         body: JSON.stringify({ text: source }),
       });
       const data = (await res.json()) as SimplifyResponse;
-      if (!data.ok) {
-        fallBackToRules(source, hash, data.error);
+      if (id !== requestId.current) return; // 그사이 다른 안내문으로 넘어감
+      if (data.ok) {
+        const keys = Object.keys(local);
+        if (keys.length >= CACHE_MAX) delete local[keys[0]];
+        save(RESULT_CACHE_KEY, { ...local, [hash]: data.result });
+        setStage({ kind: "result", result: data.result, hash });
         return;
       }
-      const keys = Object.keys(local);
-      if (keys.length >= CACHE_MAX) delete local[keys[0]];
-      save(RESULT_CACHE_KEY, { ...local, [hash]: data.result });
-      setStage({ kind: "result", result: data.result, hash });
+      error = data.error;
     } catch {
-      fallBackToRules(source, hash, "인터넷 연결을 확인해 주세요.");
+      if (id !== requestId.current) return;
     }
-  };
 
-  // AI를 쓸 수 없으면(키 없음·사용량 초과·연결 끊김) AI 없는 모드로 정리한다.
-  const fallBackToRules = (source: string, hash: string, error: string) => {
-    const { verified, removed } = verifyAgainstSource(ruleSimplify(source), source);
-    const found =
-      verified.conditions.length + verified.documents.length + verified.steps.length > 0 ||
-      verified.deadline !== null ||
-      verified.contact !== null;
-    if (!found) {
-      setStage({ kind: "fallback", error });
-      return;
-    }
-    const linkedProgramIds = findProgramsInText(`${verified.title}\n${source}`)
-      .slice(0, 2)
-      .map((p) => p.id);
-    setStage({
-      kind: "result",
-      result: { ...verified, removed, linkedProgramIds, cached: false, mode: "rule" },
-      hash,
-    });
+    // AI를 쓸 수 없으면(키 없음·붐빔·연결 끊김) AI 없는 모드 결과를 그대로 둔다.
+    if (rule) setStage({ kind: "result", result: rule, hash });
+    else setStage({ kind: "fallback", error });
   };
 
   const reset = () => {
+    requestId.current++;
     setText("");
     setInputError(null);
     setStage({ kind: "choose" });
   };
 
   const backFromStage = () => {
+    requestId.current++;
     if (stage.kind === "edit" || stage.kind === "fallback" || stage.kind === "result") {
       setStage(stage.kind === "edit" ? { kind: "choose" } : { kind: "edit", from: "paste" });
     } else if (stage.kind === "choose") {
@@ -274,10 +287,18 @@ export default function ReadPage() {
         )}
 
         {stage.kind === "simplifying" && (
-          <Waiting title="쉬운 말로 바꾸고 있어요" note="원문에 있는 내용만 골라 정리하는 중이에요." />
+          <Waiting title="쉬운 말로 바꾸고 있어요" note="원문에 있는 내용만 골라 정리하는 중이에요. 30초쯤 걸릴 수 있어요." />
         )}
 
-        {stage.kind === "result" && <ResultView result={stage.result} hash={stage.hash} source={text} onReset={reset} />}
+        {stage.kind === "result" && (
+          <ResultView
+            result={stage.result}
+            hash={stage.hash}
+            source={text}
+            onReset={reset}
+            aiPending={stage.aiPending === true}
+          />
+        )}
 
         {stage.kind === "fallback" && <FallbackView error={stage.error} source={text} onRetry={simplify} />}
       </Page>
@@ -290,11 +311,13 @@ function ResultView({
   hash,
   source,
   onReset,
+  aiPending,
 }: {
   result: SimplifyResult;
   hash: string;
   source: string;
   onReset: () => void;
+  aiPending: boolean;
 }) {
   const linked = r.linkedProgramIds.map(getProgram).filter((p) => p !== undefined);
 
@@ -318,7 +341,7 @@ function ResultView({
 
   return (
     <>
-      <AutoSpeak text={speech} />
+      {!aiPending && <AutoSpeak text={speech} />}
       {/* 휴대폰은 한 줄(order 순서), 넓은 화면은 왼쪽 설명 + 오른쪽 기한·챙길 것 */}
       <div className="flex flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_25rem] lg:items-start lg:gap-12">
         <div className="contents lg:block">
@@ -335,7 +358,16 @@ function ResultView({
             </section>
           </div>
           <div className="order-2">
-            {r.mode === "rule" && (
+            {r.mode === "rule" && aiPending && (
+              <p role="status" className="mt-6 flex items-center gap-3 rounded-2xl bg-lime-soft p-4 text-base font-bold text-lime-ink">
+                <span
+                  aria-hidden="true"
+                  className="h-5 w-5 shrink-0 rounded-full border-[3px] border-lime-strong border-t-lime-deep motion-safe:animate-spin"
+                />
+                AI가 더 쉬운 말로 다듬고 있어요. 1분쯤 걸릴 수 있어요. 그동안 아래 내용을 먼저 보세요.
+              </p>
+            )}
+            {r.mode === "rule" && !aiPending && (
               <p className="mt-6 flex gap-3 rounded-2xl bg-surface p-4 text-base text-muted">
                 <Info className="mt-0.5 h-5 w-5 shrink-0 text-lime-deep" />
                 지금은 AI를 쓸 수 없어서, 안내문의 문장을 그대로 골라 항목별로 나눴어요. 색칠된 낱말을 누르면 쉬운 뜻이 나와요.

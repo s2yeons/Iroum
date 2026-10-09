@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { callLlm, LlmError } from "@/lib/llm";
-import { SimplifySchema, type SimplifyResponse, type SimplifyResult } from "@/lib/simplify-schema";
+import { SimplifySchema, type SimplifyOutput, type SimplifyResponse, type SimplifyResult } from "@/lib/simplify-schema";
 import { normalize, verifyAgainstSource } from "@/lib/verify";
 import { findProgramsInText } from "@/lib/welfare";
 
@@ -23,6 +23,24 @@ function rateLimited(ip: string): boolean {
 
 function fail(error: string, status: number) {
   return Response.json({ ok: false, error, fallback: true } satisfies SimplifyResponse, { status });
+}
+
+// "65 세", "1 개월"처럼 숫자와 단위 사이에 낀 빈칸을 붙인다 (일부 모델의 버릇).
+const UNIT_GAP = /(\d)\s+(세|년|개월|월|일|원|만|천|시|분|가지|명|번|회|층)/g;
+const tidy = (s: string) => s.replace(UNIT_GAP, "$1$2");
+
+function tidyOutput(o: SimplifyOutput): SimplifyOutput {
+  const q = <T extends { easy: string }>(x: T): T => ({ ...x, easy: tidy(x.easy) });
+  return {
+    ...o,
+    title: tidy(o.title),
+    easy_summary: o.easy_summary.map(tidy),
+    conditions: o.conditions.map(q),
+    documents: o.documents.map(q),
+    steps: o.steps.map(q),
+    deadline: o.deadline && q(o.deadline),
+    contact: o.contact && q(o.contact),
+  };
 }
 
 export async function POST(request: Request) {
@@ -56,7 +74,7 @@ export async function POST(request: Request) {
       throw new LlmError("AI 응답을 읽지 못했어요.", "bad_output");
     }
 
-    const { verified, removed } = verifyAgainstSource(parsed, source);
+    const { verified, removed } = verifyAgainstSource(tidyOutput(parsed), source);
     const linkedProgramIds = findProgramsInText(`${verified.title}\n${source}`)
       .slice(0, 2)
       .map((p) => p.id);
@@ -71,7 +89,7 @@ export async function POST(request: Request) {
       console.error("[simplify]", e.kind, e.message);
       const msg =
         e.kind === "quota"
-          ? "지금 쉬운 설명을 만들 수 없어요. 잠시 뒤 다시 해 주세요."
+          ? "AI가 잠시 붐벼요. 대신 원문 문장으로 정리했어요."
           : "쉬운 설명을 만들지 못했어요.";
       return fail(msg, e.kind === "quota" ? 429 : 502);
     }

@@ -32,30 +32,79 @@ export class LlmError extends Error {
   }
 }
 
+const USER_PREFIX = "다음 안내문 원문을 규칙에 따라 정리해 줘.\n\n<원문>\n";
+const USER_SUFFIX = "\n</원문>";
+
+/**
+ * 문서당 1회 호출. JSON 문자열을 돌려준다.
+ * OPENROUTER_API_KEY가 있으면 OpenRouter 무료 모델을, 없으면 Gemini를 쓴다.
+ */
+export async function callLlm(documentText: string): Promise<string> {
+  if (process.env.OPENROUTER_API_KEY) return callOpenRouter(documentText, process.env.OPENROUTER_API_KEY);
+  if (process.env.GEMINI_API_KEY) return callGemini(documentText, process.env.GEMINI_API_KEY);
+  throw new LlmError("AI 키가 설정되지 않았습니다.", "no_key");
+}
+
+/* ── OpenRouter (무료 모델만) ───────────────────── */
+
+// 앞에서부터 차례로 시도한다. 붐비면(429) OpenRouter가 다음 모델로 넘긴다.
+// 반드시 ":free" 모델만 둔다 — 유료 모델로 넘어가 돈이 나가는 일을 막는다.
+const OPENROUTER_MODELS = (
+  process.env.OPENROUTER_MODELS ||
+  "google/gemma-4-31b-it:free,google/gemma-4-26b-a4b-it:free,apodex/apodex-1.1-mini:free"
+)
+  .split(",")
+  .map((m) => m.trim())
+  .filter((m) => m.endsWith(":free"));
+
+async function callOpenRouter(documentText: string, key: string): Promise<string> {
+  if (OPENROUTER_MODELS.length === 0) throw new LlmError("무료 모델이 설정되지 않았습니다.", "no_key");
+
+  const res = await fetchOrBusy("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+      "X-Title": "Iroum",
+    },
+    body: JSON.stringify({
+      models: OPENROUTER_MODELS,
+      temperature: 0.1,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: USER_PREFIX + documentText + USER_SUFFIX },
+      ],
+    }),
+    // 무료 모델은 1분 가까이 걸릴 때가 있다. 화면은 그동안 AI 없는 결과를 먼저 보여 준다.
+    signal: AbortSignal.timeout(100_000),
+  });
+
+  if (res.status === 429) throw new LlmError("무료 AI가 잠시 붐빕니다.", "quota");
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new LlmError(`AI 응답 오류 (${res.status}) ${body.slice(0, 200)}`, "upstream");
+  }
+  const json = await res.json();
+  const text: string | undefined = json?.choices?.[0]?.message?.content;
+  if (!text) throw new LlmError("AI가 빈 응답을 보냈습니다.", "bad_output");
+  return extractJson(text);
+}
+
+/* ── Gemini ─────────────────────────────────── */
+
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
 
-/** 문서당 1회 호출. JSON 문자열을 돌려준다. */
-export async function callLlm(documentText: string): Promise<string> {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) throw new LlmError("GEMINI_API_KEY가 설정되지 않았습니다.", "no_key");
-
-  const res = await fetch(
+async function callGemini(documentText: string, key: string): Promise<string> {
+  const res = await fetchOrBusy(
     `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": key },
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-        contents: [
-          {
-            role: "user",
-            parts: [{ text: `다음 안내문 원문을 규칙에 따라 정리해 줘.\n\n<원문>\n${documentText}\n</원문>` }],
-          },
-        ],
-        generationConfig: {
-          responseMimeType: "application/json",
-          temperature: 0.1,
-        },
+        contents: [{ role: "user", parts: [{ text: USER_PREFIX + documentText + USER_SUFFIX }] }],
+        generationConfig: { responseMimeType: "application/json", temperature: 0.1 },
       }),
       signal: AbortSignal.timeout(60_000),
     },
@@ -66,11 +115,28 @@ export async function callLlm(documentText: string): Promise<string> {
     const body = await res.text().catch(() => "");
     throw new LlmError(`AI 응답 오류 (${res.status}) ${body.slice(0, 200)}`, "upstream");
   }
-
   const json = await res.json();
   const text: string | undefined = json?.candidates?.[0]?.content?.parts
     ?.map((p: { text?: string }) => p.text ?? "")
     .join("");
   if (!text) throw new LlmError("AI가 빈 응답을 보냈습니다.", "bad_output");
-  return text;
+  return extractJson(text);
+}
+
+/** 시간 초과·연결 끊김은 "AI가 붐빔"으로 다룬다 → 화면은 AI 없는 모드 결과를 그대로 둔다. */
+async function fetchOrBusy(url: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch (e) {
+    const name = (e as Error).name;
+    if (name === "TimeoutError" || name === "AbortError") throw new LlmError("AI 응답이 너무 늦어요.", "quota");
+    throw new LlmError(`AI 연결 실패: ${(e as Error).message}`, "upstream");
+  }
+}
+
+/** 일부 모델은 ```json ... ``` 으로 감싸거나 앞뒤에 말을 붙인다. 가장 바깥 { } 만 꺼낸다. */
+function extractJson(text: string): string {
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  return start >= 0 && end > start ? text.slice(start, end + 1) : text;
 }
