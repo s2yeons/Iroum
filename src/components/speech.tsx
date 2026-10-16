@@ -4,6 +4,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Speaker } from "./icons";
 import { useSettings } from "./settings";
 
+/** "30~50대"를 "30 물결표 50대"로 읽지 않게 "30에서 50대"로 바꾼다. */
+export function toSpoken(text: string) {
+  return text.replace(/\s*~\s*/g, "에서 ");
+}
+
+/** 다 읽었으면 "ok", 브라우저가 소리를 막았으면(화면을 아직 안 누름) "blocked" */
+export type SayResult = "ok" | "blocked";
+
 /** 브라우저 내장 음성(Web Speech API). 비용 없음. */
 export function useSpeech() {
   const { rate } = useSettings();
@@ -29,38 +37,43 @@ export function useSpeech() {
     };
   }, []);
 
+  // 크롬은 참조가 없는 발화를 지워 onend 를 놓치기도 해서 붙잡아 둔다.
+  const currentRef = useRef<SpeechSynthesisUtterance | null>(null);
+
   const stop = useCallback(() => {
     if (!("speechSynthesis" in window)) return;
+    currentRef.current = null; // 잠깐 쉬었다 읽으려던 말도 취소
     window.speechSynthesis.cancel();
     setSpeaking(false);
   }, []);
 
-  // 크롬은 참조가 없는 발화를 지워 onend 를 놓치기도 해서 붙잡아 둔다.
-  const currentRef = useRef<SpeechSynthesisUtterance | null>(null);
-
   const speak = useCallback(
-    (text: string, onEnd?: () => void) => {
+    (text: string, onEnd?: (result: SayResult) => void) => {
       if (!("speechSynthesis" in window)) {
-        onEnd?.();
+        onEnd?.("ok");
         return;
       }
-      window.speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(text);
+      const synth = window.speechSynthesis;
+      const busy = synth.speaking || synth.pending;
+      synth.cancel();
+      const u = new SpeechSynthesisUtterance(toSpoken(text));
       u.lang = "ko-KR";
       if (voiceRef.current) u.voice = voiceRef.current;
       u.rate = rate === "slow" ? 0.8 : 1;
-      const done = () => {
+      const done = (result: SayResult) => {
         if (currentRef.current === u) {
           currentRef.current = null;
           setSpeaking(false);
         }
-        onEnd?.();
+        onEnd?.(result);
       };
-      u.onend = done;
-      u.onerror = done;
+      u.onend = () => done("ok");
+      u.onerror = (e) => done(e.error === "not-allowed" ? "blocked" : "ok");
       currentRef.current = u;
       setSpeaking(true);
-      window.speechSynthesis.speak(u);
+      // 크롬은 끊자마자 새로 읽으면 그 말을 빠뜨리기도 해서 잠깐 쉬었다 읽는다.
+      if (busy) setTimeout(() => currentRef.current === u && synth.speak(u), 120);
+      else synth.speak(u);
     },
     [rate],
   );
@@ -68,15 +81,15 @@ export function useSpeech() {
   /** 다 읽을 때까지 기다린다. onend 가 오지 않는 브라우저를 위해 시간 제한을 둔다. */
   const say = useCallback(
     (text: string) =>
-      new Promise<void>((resolve) => {
+      new Promise<SayResult>((resolve) => {
         let finished = false;
-        const finish = () => {
+        const finish = (result: SayResult = "ok") => {
           if (finished) return;
           finished = true;
           clearTimeout(timer);
-          resolve();
+          resolve(result);
         };
-        const timer = setTimeout(finish, 3000 + text.length * (rate === "slow" ? 330 : 260));
+        const timer = setTimeout(() => finish(), 3000 + text.length * (rate === "slow" ? 330 : 260));
         speak(text, finish);
       }),
     [speak, rate],

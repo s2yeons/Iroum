@@ -164,3 +164,34 @@ export function matchSpoken(key: string, alternatives: string[], options: Option
   }
   return { kind: "none" };
 }
+
+// ---- 화면이 읽어 주는 소리가 마이크에 다시 들어간 것 걸러내기 ----
+
+function bigrams(s: string): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < s.length - 1; i++) out.push(s.slice(i, i + 2));
+  return out;
+}
+
+/** a 의 두 글자 묶음 중 b 에도 있는 비율 */
+function overlap(a: string, b: string): number {
+  const grams = bigrams(a);
+  if (grams.length === 0) return b.includes(a) ? 1 : 0;
+  return grams.filter((g) => b.includes(g)).length / grams.length;
+}
+
+/**
+ * 읽는 중에 들린 말이 스피커 소리(에코)인지 본다.
+ * 읽는 소리는 쉬지 않고 이어져서 질문·선택지 여러 개가 한꺼번에 들린다.
+ * 그래서 읽는 글과 거의 같으면서 선택지 하나로 설명되지 않으면 에코로 본다.
+ */
+export function isEcho(transcript: string, reading: string, options: Option[]): boolean {
+  const t = norm(transcript);
+  if (t.length < 2) return true;
+  if (overlap(t, norm(reading)) < 0.75) return false;
+  // 선택지는 "30~50대"처럼 적혀 있어도 "30에서 50대"로 읽고 말하므로 둘 다 본다.
+  const single = options.some((o) =>
+    [norm(o.label), norm(o.label.replace(/~/g, "에서"))].some((l) => overlap(t, l) >= 0.8 && t.length <= l.length + 4),
+  );
+  return !single;
+}

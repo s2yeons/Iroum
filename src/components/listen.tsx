@@ -68,16 +68,20 @@ export function useListen() {
     recRef.current?.abort();
     const gen = ++genRef.current;
 
-    // USB 마이크를 골랐으면 그 마이크 소리를 직접 넘긴다.
-    // (이 기능이 없는 브라우저는 컴퓨터의 기본 마이크를 쓴다)
+    // 마이크 소리를 직접 열어 넘긴다. 에코 제거를 켜서 화면이 읽어 주는 소리가 덜 들어가게 하고,
+    // USB 마이크를 골랐으면 그 마이크를 쓴다. (이 기능이 없는 브라우저는 컴퓨터의 기본 마이크를 쓴다)
     let track: MediaStreamTrack | undefined;
-    if (micId && navigator.mediaDevices?.getUserMedia) {
+    if (navigator.mediaDevices?.getUserMedia) {
+      const audio: MediaTrackConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: micId } } });
+        const stream = await navigator.mediaDevices
+          .getUserMedia({ audio: micId ? { ...audio, deviceId: { exact: micId } } : audio })
+          // 고른 마이크가 빠졌으면 기본 마이크로 듣는다.
+          .catch(() => (micId ? navigator.mediaDevices.getUserMedia({ audio }) : Promise.reject()));
         streamRef.current = stream;
         track = stream.getAudioTracks()[0];
       } catch {
-        // 고른 마이크가 빠졌으면 기본 마이크로 듣는다.
+        // 마이크를 열지 못하면 음성 인식이 직접 열게 둔다. (없으면 거기서 알려 준다)
       }
     }
     if (gen !== genRef.current) {

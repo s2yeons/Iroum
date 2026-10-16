@@ -21,10 +21,10 @@ import {
 import { LISTEN_ERROR_TEXT, useListen, type ListenError } from "@/components/listen";
 import { ProgramCard } from "@/components/program-card";
 import { useSettings } from "@/components/settings";
-import { AutoSpeak, SpeakButton, useSpeech } from "@/components/speech";
+import { AutoSpeak, SpeakButton, toSpoken, useSpeech } from "@/components/speech";
 import { Disclaimer, Page, TopBar } from "@/components/ui";
 import { load, save } from "@/lib/storage";
-import { matchSpoken } from "@/lib/voice-match";
+import { isEcho, matchSpoken } from "@/lib/voice-match";
 import { CHECKED_AT, matchPrograms, type Answers, type Support } from "@/lib/welfare";
 
 const REGIONS = [
@@ -304,6 +304,7 @@ function useVoiceAnswer({
   const [round, setRound] = useState(0); // 마이크 버튼을 누르면 다시 시작
   const [status, setStatus] = useState<"speaking" | "listening" | "paused" | "done">("speaking");
   const [error, setError] = useState<ListenError | null>(null);
+  const [blocked, setBlocked] = useState(false); // 화면을 누르기 전이라 브라우저가 소리를 막음
   const on = ready && voiceInput && supported;
 
   const prompt =
@@ -327,53 +328,84 @@ function useVoiceAnswer({
   useEffect(() => {
     if (!on) return;
     let cancelled = false;
-    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+    // 읽는 동안에도 마이크는 켜 두고, 대답이 들리면 읽기를 멈추고 바로 고른다.
+    // 읽는 소리가 마이크로 다시 들어온 것(에코)은 걸러 낸다. 음성 인식은 소리가 끝나고 조금 뒤에
+    // 글자를 주므로, 다 읽은 뒤에도 잠깐은 계속 거른다.
+    const ECHO_TAIL_MS = 2000;
+    let echoText: string | null = null;
+    let echoUntil = 0; // 0 이면 읽는 중
+    let readGen = 0;
+    const read = (text: string) => {
+      const g = ++readGen;
+      echoText = `${text} ${toSpoken(text)}`;
+      echoUntil = 0;
+      setStatus("speaking");
+      say(text).then((result) => {
+        if (g !== readGen || cancelled) return;
+        echoUntil = Date.now() + ECHO_TAIL_MS;
+        setBlocked(result === "blocked");
+        setStatus("listening");
+      });
+    };
+    const echoFilter = () => (echoText && (echoUntil === 0 || Date.now() < echoUntil) ? echoText : null);
+    const quiet = () => {
+      readGen++;
+      echoText = null;
+      stop();
+    };
 
     (async () => {
       setError(null);
-      setStatus("speaking");
-      await say(prompt);
+      read(prompt);
       let misses = 0;
       while (!cancelled) {
-        // 스피커 소리가 마이크에 들어가지 않게 잠깐 쉰다.
-        await wait(250);
-        if (cancelled) return;
-        setStatus("listening");
         const r = await listen();
         if (cancelled) return;
 
         if (!r.ok) {
           if (r.reason === "aborted") return;
           if (r.reason !== "silence") {
+            quiet();
             setError(r.reason);
             setStatus("paused");
             return;
           }
+          if (echoFilter()) continue; // 읽는 중에 조용한 것은 세지 않는다
           if (++misses >= 3) break;
-          setStatus("speaking");
-          await say("말씀이 들리지 않았어요. 다시 말씀해 주세요.");
+          read("말씀이 들리지 않았어요. 다시 말씀해 주세요.");
           continue;
         }
 
-        const m = matchSpoken(q.key, r.alternatives, q.options);
+        const echo = echoFilter();
+        const alternatives = echo ? r.alternatives.filter((a) => !isEcho(a, echo, q.options)) : r.alternatives;
+        if (alternatives.length === 0) continue; // 스피커 소리만 들렸다
+
+        const m = matchSpoken(q.key, alternatives, q.options);
         if (m.kind === "answer") {
+          quiet();
           setStatus("done");
           await say(apply(m.values));
           if (!cancelled) next();
           return;
         }
         if (m.kind === "command") {
-          if (m.command === "next" && isAnswered()) return next();
-          if (m.command === "back") return back();
-          setStatus("speaking");
-          await say(prompt);
+          if (m.command === "next" && isAnswered()) {
+            quiet();
+            return next();
+          }
+          if (m.command === "back") {
+            quiet();
+            return back();
+          }
+          read(prompt);
           continue;
         }
         if (++misses >= 3) break;
-        setStatus("speaking");
-        await say(`잘 못 알아들었어요. ${q.key === "region" ? "사시는 시나 도 이름을" : "선택지 중 하나를"} 말씀해 주세요.`);
+        read(`잘 못 알아들었어요. ${q.key === "region" ? "사시는 시나 도 이름을" : "선택지 중 하나를"} 말씀해 주세요.`);
       }
       if (!cancelled) {
+        quiet();
         setStatus("paused");
         await say("마이크 버튼을 누르고 말씀하시거나, 화면에서 골라 주세요.");
       }
@@ -388,14 +420,15 @@ function useVoiceAnswer({
 
   const retry = () => setRound((n) => n + 1);
 
-  return { on, status, listening, heard, error, retry };
+  return { on, status, listening, heard, error, blocked, retry };
 }
 
 function VoicePanel({ voice }: { voice: ReturnType<typeof useVoiceAnswer> }) {
-  const { status, listening, heard, error, retry } = voice;
-  const label =
-    status === "speaking"
-      ? "질문을 읽고 있어요"
+  const { status, listening, heard, error, blocked, retry } = voice;
+  const label = blocked
+    ? "이 버튼을 누르면 질문을 읽어 드려요"
+    : status === "speaking"
+      ? "읽는 중에도 바로 말씀하셔도 돼요"
       : listening
         ? "듣고 있어요. 말씀해 주세요"
         : status === "done"
@@ -409,7 +442,7 @@ function VoicePanel({ voice }: { voice: ReturnType<typeof useVoiceAnswer> }) {
         onClick={retry}
         aria-live="polite"
         className={`inline-flex min-h-14 items-center gap-3 rounded-full py-2 pl-2 pr-6 text-[1.05rem] font-bold transition-colors ${
-          listening ? "bg-lime-ink text-white" : "bg-surface text-foreground hover:bg-surface-strong"
+          listening && status !== "speaking" ? "bg-lime-ink text-white" : "bg-surface text-foreground hover:bg-surface-strong"
         }`}
       >
         <span className="relative flex h-10 w-10 items-center justify-center rounded-full bg-lime text-lime-ink">

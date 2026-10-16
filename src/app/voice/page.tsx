@@ -19,7 +19,7 @@ export default function VoicePage() {
     update(next ? { voiceInput: true, voiceGuide: true } : { voiceInput: false });
     speak(
       next
-        ? "말로 대답하기를 켰어요. 질문과 선택지를 읽어 드린 뒤, 말씀하시면 골라서 다음으로 넘어가요."
+        ? "말로 대답하기를 켰어요. 질문과 선택지를 읽는 중에도 말씀하시면 바로 골라서 다음으로 넘어가요."
         : "말로 대답하기를 껐어요.",
     );
   };
@@ -94,7 +94,7 @@ export default function VoicePage() {
           <span className="flex-1">
             <span className="block text-[1.15rem] font-extrabold">말로 대답하기</span>
             <span className="mt-0.5 block text-base text-muted">
-              선택지를 듣고 마이크에 말하면 알아서 골라 넘어가요.
+              선택지를 읽어 드려요. 듣다가 언제든 말하면 바로 골라 넘어가요.
             </span>
             <span className={`mt-0.5 block text-base font-bold ${voiceInput ? "text-lime-deep" : "text-muted"}`}>
               {voiceInput ? "켜져 있어요" : "꺼져 있어요"}
