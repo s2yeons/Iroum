@@ -7,7 +7,7 @@ import { ProgramCard } from "@/components/program-card";
 import { useSettings } from "@/components/settings";
 import { AutoSpeak, SpeakButton, toSpoken, useSpeech } from "@/components/speech";
 import { Disclaimer, Page, TopBar } from "@/components/ui";
-import { load, save } from "@/lib/storage";
+import { load, remove, save } from "@/lib/storage";
 import { extractAll, isEcho, matchSpoken, saysDontKnow } from "@/lib/voice-match";
 import { CHECKED_AT, matchPrograms, type AgeBand, type Answers, type Household, type IncomeBand, type Support } from "@/lib/welfare";
 
@@ -131,12 +131,15 @@ type Msg = { id: number; from: "bot" | "me"; text: string; ask?: Field[]; done?:
 
 const ANSWERS_KEY = "swb:answers";
 const DONE_KEY = "swb:find-done";
+const CHAT_KEY = "swb:find-chat"; // 나눈 대화 (이 기기에만 저장)
+const CHAT_MAX = 80;
 
 export default function FindPage() {
   const [answers, setAnswers] = useState<Answers>({});
   const [done, setDone] = useState(false);
   const [ready, setReady] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [session, setSession] = useState(0); // 처음부터 다시 하면 대화창을 새로 만든다
 
   // 답은 이 기기에만 저장한다 (서버로 보내지 않음)
   useEffect(() => {
@@ -159,6 +162,8 @@ export default function FindPage() {
   const restart = () => {
     save(ANSWERS_KEY, {});
     save(DONE_KEY, false);
+    remove(CHAT_KEY);
+    setSession((n) => n + 1);
     setAnswers({});
     setEditing(false);
     setDone(false);
@@ -185,15 +190,15 @@ export default function FindPage() {
   return (
     <>
       <TopBar backHref="/" title="지원금 찾기" />
-      <Chat key={editing ? "edit" : "new"} initial={answers} editing={editing} onFinish={finish} onRestart={restart} />
+      <Chat key={`${session}-${editing}`} initial={answers} editing={editing} onFinish={finish} onRestart={restart} />
     </>
   );
 }
 
-function firstMessage(initial: Answers, editing: boolean): Msg {
+function startMessage(initial: Answers, editing: boolean, id: number): Msg {
   if (editing) {
     return {
-      id: 1,
+      id,
       from: "bot",
       text: `${recap(initial)} 고치실 내용을 말씀해 주세요. 예를 들어 “형편은 보통이에요”처럼요.`,
       ask: FIELDS,
@@ -201,9 +206,24 @@ function firstMessage(initial: Answers, editing: boolean): Msg {
   }
   const miss = missing(initial);
   if (miss.length < FIELDS.length) {
-    return { id: 1, from: "bot", text: `이어서 할게요. ${miss.map((f) => ASK[f]).join(" ")}`, ask: miss };
+    return { id, from: "bot", text: `이어서 할게요. ${miss.map((f) => ASK[f]).join(" ")}`, ask: miss };
   }
-  return { id: 1, from: "bot", text: GREETING, ask: FIELDS };
+  return { id, from: "bot", text: GREETING, ask: FIELDS };
+}
+
+/** 저장해 둔 대화를 이어서 보여 준다. 고치러 돌아왔으면 그 뒤에 "고치실 내용" 질문을 붙인다. */
+function openingMessages(initial: Answers, editing: boolean): Msg[] {
+  const history = load<Msg[]>(CHAT_KEY, []).map((m) => ({ ...m, done: false }));
+  const lastId = history.at(-1)?.id ?? 0;
+  if (history.length === 0) return [startMessage(initial, editing, 1)];
+  if (editing) return [...history, startMessage(initial, true, lastId + 1)];
+  if (missing(initial).length === 0) {
+    return [...history, { id: lastId + 1, from: "bot", text: "이어서 할게요. 찾은 혜택을 보여 드릴게요.", done: true }];
+  }
+  // 이어서 하기: 마지막 질문이 아직 남아 있으면 그대로, 아니면 남은 것을 다시 묻는다
+  const lastBot = [...history].reverse().find((m) => m.from === "bot");
+  if (lastBot?.ask?.length && history.at(-1)?.from === "bot") return history;
+  return [...history, startMessage(initial, false, lastId + 1)];
 }
 
 function Chat({
@@ -218,9 +238,14 @@ function Chat({
   onRestart: () => void;
 }) {
   const [answers, setAnswers] = useState<Answers>(initial);
-  const [msgs, setMsgs] = useState<Msg[]>(() => [firstMessage(initial, editing)]);
+  const [msgs, setMsgs] = useState<Msg[]>(() => openingMessages(initial, editing));
   const [draft, setDraft] = useState("");
-  const idRef = useRef(1);
+  const idRef = useRef(msgs.at(-1)?.id ?? 1);
+
+  // 나눈 대화는 이 기기에 저장해서, 새로고침하거나 결과에서 돌아와도 이어서 보인다
+  useEffect(() => {
+    save(CHAT_KEY, msgs.slice(-CHAT_MAX));
+  }, [msgs]);
 
   const lastBot = [...msgs].reverse().find((m) => m.from === "bot")!;
   const answered = msgs.length > 1;
