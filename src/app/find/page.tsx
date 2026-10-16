@@ -250,9 +250,32 @@ function Chat({
   const lastBot = [...msgs].reverse().find((m) => m.from === "bot")!;
   const answered = msgs.length > 1;
 
-  // 새 말이 오면 맨 아래로 (아래에 붙은 입력칸에 가리지 않게 페이지 끝까지)
+  // 아래 입력 막대의 높이만큼 대화 아래를 비워 둔다 (막대에 가리지 않게)
+  const listRef = useRef<HTMLOListElement>(null);
+  const barRef = useRef<HTMLDivElement>(null);
+  const [barH, setBarH] = useState(0);
   useEffect(() => {
-    if (msgs.length > 1) window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "smooth" });
+    const el = barRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setBarH(el.offsetHeight));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [lastBot.done]);
+  // 페이지 맨 아래(사이트 안내 글)까지 막대 위로 올라올 수 있게 몸통 아래를 비운다
+  useEffect(() => {
+    if (lastBot.done) return;
+    document.body.style.paddingBottom = `${barH}px`;
+    return () => {
+      document.body.style.paddingBottom = "";
+    };
+  }, [barH, lastBot.done]);
+
+  // 새 말이 오면 마지막 말이 입력 막대 바로 위에 오도록 올린다
+  useEffect(() => {
+    if (msgs.length < 2 || !listRef.current) return;
+    const bottom = listRef.current.getBoundingClientRect().bottom;
+    const visible = window.innerHeight - (barRef.current?.offsetHeight ?? 0) - 16;
+    if (bottom > visible) window.scrollBy({ top: bottom - visible, behavior: "smooth" });
   }, [msgs.length]);
 
   /** 사용자의 말(또는 누른 버튼)을 받아 다음 말을 정한다 */
@@ -306,10 +329,10 @@ function Chat({
 
   return (
     <Page>
-      <div className="flex min-h-[calc(100dvh-6rem)] flex-col">
+      <div>
         {!voice.active && <AutoSpeak text={lastBot.text} />}
 
-        <ol className="flex-1 space-y-4" aria-live="polite">
+        <ol ref={listRef} className="space-y-4" aria-live="polite">
           {msgs.map((m) =>
             m.from === "bot" ? (
               <li key={m.id} className="rise flex items-start gap-3">
@@ -331,52 +354,30 @@ function Chat({
           )}
         </ol>
 
-        {/* 말 대신 눌러서 고르기: 아직 모르는 것만 */}
-        {lastBot.ask && (
-          <div className="mt-5 space-y-4">
-            {lastBot.ask.map((f) => (
-              <section key={f}>
-                <h2 className="px-1 text-base font-bold text-muted">{CHOICES[f].title}</h2>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {CHOICES[f].options.map((o) => {
-                    const sel = f === "supports"
-                      ? o.value === "none" ? answers.supports?.length === 0 : (answers.supports ?? []).includes(o.value as Support)
-                      : answers[f] === o.value;
-                    return (
-                      <button
-                        key={o.value}
-                        type="button"
-                        onClick={() => choose(f, o)}
-                        aria-pressed={sel}
-                        className={`min-h-12 rounded-full px-4 text-[1.05rem] font-bold transition-colors ${
-                          sel ? "bg-lime-soft text-lime-ink shadow-[inset_0_0_0_2px_var(--lime-deep)]" : "bg-white shadow-[inset_0_0_0_1.5px_var(--line)] hover:bg-surface"
-                        }`}
-                      >
-                        {f === "supports" && o.value !== "none" && (
-                          <ProgramIcon
-                            id={{ basic_pension: "basic-pension", livelihood: "livelihood-benefit", ltc: "long-term-care" }[o.value]!}
-                            className="-ml-1 mr-1.5 inline h-6 w-6 align-[-5px]"
-                          />
-                        )}
-                        {o.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </section>
-            ))}
-          </div>
-        )}
-        {lastBot.done && (
+        {lastBot.done ? (
           <button type="button" onClick={() => onFinish(answers)} className="btn btn-primary mt-6">
             찾은 혜택 보기
           </button>
+        ) : (
+          answered && (
+            <button type="button" onClick={onRestart} className="mx-auto mt-5 flex items-center gap-1.5 text-base font-bold text-muted">
+              <Refresh className="h-4 w-4" />
+              처음부터 다시
+            </button>
+          )
         )}
+      </div>
 
-        {/* 말하기 · 글쓰기 */}
-        {!lastBot.done && (
-          <div className="bottom-cta mt-6 space-y-3">
-            {voice.supported && <VoiceButton voice={voice} />}
+      {/* 화면 아래에 고정: 버튼을 눌러도 이 자리는 그대로이고 위의 대화만 올라간다 */}
+      {!lastBot.done && (
+        <div
+          ref={barRef}
+          className="no-print fixed inset-x-0 bottom-0 z-20 shadow-[0_-1px_0_var(--line),0_-8px_24px_-16px_rgb(25_31_40/0.25)]"
+          style={{ background: "var(--background)" }}
+        >
+          <div className="mx-auto max-w-xl space-y-2.5 px-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-3 sm:px-6 lg:px-8">
+            {lastBot.ask && <QuickPicks key={lastBot.id} ask={lastBot.ask} answers={answers} onChoose={choose} />}
+            {voice.active && <VoiceStatus voice={voice} />}
             <form
               onSubmit={(e) => {
                 e.preventDefault();
@@ -385,6 +386,7 @@ function Chat({
               }}
               className="flex gap-2"
             >
+              {voice.supported && <MicButton voice={voice} />}
               <label htmlFor="say" className="sr-only">
                 글로 대답하기
               </label>
@@ -392,24 +394,95 @@ function Chat({
                 id="say"
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
-                placeholder="여기에 글로 써도 돼요"
+                placeholder="글로 써도 돼요"
                 autoComplete="off"
                 className="min-h-14 min-w-0 flex-1 rounded-2xl bg-surface px-4 text-[1.05rem] font-bold outline-none placeholder:font-medium placeholder:text-subtle focus:shadow-[inset_0_0_0_2px_var(--lime-deep)]"
               />
-              <button type="submit" disabled={!draft.trim()} className="min-h-14 shrink-0 rounded-2xl bg-lime-ink px-5 text-[1.05rem] font-extrabold text-white disabled:bg-surface-strong disabled:text-subtle">
+              <button
+                type="submit"
+                disabled={!draft.trim()}
+                className="min-h-14 shrink-0 rounded-2xl bg-lime-ink px-4 text-[1.05rem] font-extrabold text-white disabled:bg-surface-strong disabled:text-subtle"
+              >
                 보내기
               </button>
             </form>
-            {answered && (
-              <button type="button" onClick={onRestart} className="mx-auto flex items-center gap-1.5 text-base font-bold text-muted">
-                <Refresh className="h-4 w-4" />
-                처음부터 다시
-              </button>
-            )}
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </Page>
+  );
+}
+
+/** 말 대신 눌러서 고르기. 화면을 덜 가리게 항목(나이·형편·지원)을 탭으로 나눠 한 가지씩 보여 준다. */
+function QuickPicks({
+  ask,
+  answers,
+  onChoose,
+}: {
+  ask: Field[];
+  answers: Answers;
+  onChoose: (f: Field, o: Option) => void;
+}) {
+  // 처음에는 아직 대답하지 않은 항목을 펼친다
+  const [field, setField] = useState<Field>(() => ask.find((f) => answers[f] === undefined) ?? ask[0]);
+  const isSelected = (f: Field, v: string) =>
+    f === "supports"
+      ? v === "none"
+        ? answers.supports?.length === 0
+        : (answers.supports ?? []).includes(v as Support)
+      : answers[f] === v;
+
+  return (
+    <div>
+      {ask.length === 1 && <p className="px-1 text-base font-bold text-muted">{CHOICES[field].title}</p>}
+      {ask.length > 1 && (
+        <div role="tablist" aria-label="눌러서 고르기" className="grid gap-1 rounded-2xl bg-surface p-1"
+          style={{ gridTemplateColumns: `repeat(${ask.length}, minmax(0, 1fr))` }}
+        >
+          {ask.map((f) => (
+            <button
+              key={f}
+              type="button"
+              role="tab"
+              aria-selected={field === f}
+              onClick={() => setField(f)}
+              className={`min-h-11 rounded-xl text-base font-bold transition-colors ${
+                field === f ? "bg-white text-foreground shadow-[0_2px_8px_rgba(25,31,40,0.1)]" : "text-muted"
+              }`}
+            >
+              {CHOICES[f].title}
+              {answers[f] !== undefined && <span className="ml-1 text-lime-deep">✓</span>}
+            </button>
+          ))}
+        </div>
+      )}
+      <div role="tabpanel" aria-label={CHOICES[field].title} className="mt-2 flex flex-wrap gap-2">
+        {CHOICES[field].options.map((o) => {
+          const sel = isSelected(field, o.value);
+          return (
+            <button
+              key={o.value}
+              type="button"
+              onClick={() => onChoose(field, o)}
+              aria-pressed={sel}
+              className={`min-h-12 rounded-full px-4 text-[1.05rem] font-bold transition-colors ${
+                sel
+                  ? "bg-lime-soft text-lime-ink shadow-[inset_0_0_0_2px_var(--lime-deep)]"
+                  : "bg-white shadow-[inset_0_0_0_1.5px_var(--line)] hover:bg-surface"
+              }`}
+            >
+              {field === "supports" && o.value !== "none" && (
+                <ProgramIcon
+                  id={{ basic_pension: "basic-pension", livelihood: "livelihood-benefit", ltc: "long-term-care" }[o.value]!}
+                  className="-ml-1 mr-1.5 inline h-6 w-6 align-[-5px]"
+                />
+              )}
+              {o.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -514,44 +587,49 @@ function useVoiceTurn(bot: Msg, onHeard: (alternatives: string[]) => void) {
   return { active, supported, status, listening, heard, error, blocked, press };
 }
 
-function VoiceButton({ voice }: { voice: ReturnType<typeof useVoiceTurn> }) {
-  const { active, status, listening, heard, error, blocked, press } = voice;
-  const label = !active
-    ? "눌러서 말로 대답하기"
-    : blocked
-      ? "눌러 주시면 읽어 드릴게요"
-      : status === "speaking"
-        ? "읽는 중에도 바로 말씀하셔도 돼요"
-        : listening
-          ? "듣고 있어요. 말씀해 주세요"
-          : "눌러서 다시 말하기";
+/** 마이크 버튼 (입력칸 옆) */
+function MicButton({ voice }: { voice: ReturnType<typeof useVoiceTurn> }) {
+  const { active, status, listening, press } = voice;
   const hot = active && listening && status !== "speaking";
   return (
-    <div className="no-print">
-      <button
-        type="button"
-        onClick={press}
-        className={`flex min-h-16 w-full items-center justify-center gap-3 rounded-2xl text-[1.1rem] font-extrabold transition-colors ${
-          hot ? "bg-lime-ink text-white" : "bg-lime text-lime-ink hover:bg-lime-strong"
-        }`}
-      >
-        <span className="relative flex h-10 w-10 items-center justify-center rounded-full bg-white/90 text-lime-ink">
-          {hot && <span className="absolute inset-0 rounded-full bg-lime motion-safe:animate-ping" aria-hidden="true" />}
-          <Mic className="relative h-6 w-6" />
-        </span>
-        {label}
-      </button>
-      {active && heard && (
-        <p className="mt-2 text-center text-base text-muted">
-          들은 말: <span className="font-bold text-foreground">“{heard}”</span>
-        </p>
-      )}
-      {error && (
-        <p role="alert" className="mt-2 rounded-2xl bg-warn-bg p-4 text-[1.05rem] font-bold text-warn-ink">
-          {LISTEN_ERROR_TEXT[error]}
-        </p>
-      )}
-    </div>
+    <button
+      type="button"
+      onClick={press}
+      aria-label={active ? "다시 말하기" : "말로 대답하기"}
+      className={`relative flex min-h-14 shrink-0 items-center gap-1.5 rounded-2xl px-3.5 text-[1.05rem] font-extrabold transition-colors ${
+        hot ? "bg-lime-ink text-white" : "bg-lime text-lime-ink hover:bg-lime-strong"
+      }`}
+    >
+      <span className="relative flex h-7 w-7 items-center justify-center">
+        {hot && <span className="absolute inset-0 rounded-full bg-lime motion-safe:animate-ping" aria-hidden="true" />}
+        <Mic className="relative h-6 w-6" />
+      </span>
+      말하기
+    </button>
+  );
+}
+
+/** 지금 읽는 중인지 듣는 중인지, 들은 말, 마이크 문제를 한 줄로 알려 준다 */
+function VoiceStatus({ voice }: { voice: ReturnType<typeof useVoiceTurn> }) {
+  const { status, listening, heard, error, blocked } = voice;
+  if (error) {
+    return (
+      <p role="alert" className="rounded-2xl bg-warn-bg px-4 py-3 text-base font-bold text-warn-ink">
+        {LISTEN_ERROR_TEXT[error]}
+      </p>
+    );
+  }
+  const label = blocked
+    ? "‘말하기’를 누르시면 읽어 드릴게요"
+    : status === "speaking"
+      ? "읽는 중에도 바로 말씀하셔도 돼요"
+      : listening
+        ? "듣고 있어요. 말씀해 주세요"
+        : "‘말하기’를 누르고 말씀해 주세요";
+  return (
+    <p aria-live="polite" className="truncate px-1 text-base font-bold text-lime-deep">
+      {listening && heard ? <>들은 말: <span className="text-foreground">“{heard}”</span></> : label}
+    </p>
   );
 }
 

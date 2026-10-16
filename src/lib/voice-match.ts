@@ -279,5 +279,6 @@ export function extractAll(raw: string): Extracted {
 
 /** "잘 모르겠어요"처럼 아무것도 모른다는 대답인지 */
 export function saysDontKnow(raw: string) {
-  return has(norm(raw), UNKNOWN);
+  // "글쎄"처럼 머뭇거리는 말로는 정하지 않는다 (남은 질문을 모두 '모름'으로 채우게 되므로)
+  return has(norm(raw), ["모르", "몰라"]);
 }
