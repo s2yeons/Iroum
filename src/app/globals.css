@@ -58,6 +58,14 @@ body {
   word-break: keep-all;
   overflow-wrap: anywhere;
   -webkit-tap-highlight-color: transparent;
+  /* 글자 위에서도 마우스가 I자로 바뀌지 않게 (글을 쓰는 칸만 I자) */
+  cursor: default;
+}
+
+textarea,
+input:not([type="checkbox"], [type="radio"], [type="file"], [type="button"], [type="submit"]),
+[contenteditable="true"] {
+  cursor: text;
 }
 
 h1,
