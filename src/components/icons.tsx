@@ -43,6 +43,13 @@ export const Speaker = ({ className = "h-6 w-6" }: P) => (
   </svg>
 );
 
+export const Mic = ({ className = "h-6 w-6" }: P) => (
+  <svg viewBox="0 0 24 24" className={className} {...base}>
+    <rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor" stroke="none" />
+    <path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" />
+  </svg>
+);
+
 export const Stop = ({ className = "h-6 w-6" }: P) => (
   <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
     <rect x="6" y="6" width="12" height="12" rx="2.5" fill="currentColor" />

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useState } from "react";
 import {
   Check,
   IllBadge,
@@ -8,6 +8,7 @@ import {
   IllHome,
   IllPin,
   IllWallet,
+  Mic,
   OptFamily,
   OptLow,
   OptMid,
@@ -17,10 +18,13 @@ import {
   ProgramIcon,
   Refresh,
 } from "@/components/icons";
+import { LISTEN_ERROR_TEXT, useListen, type ListenError } from "@/components/listen";
 import { ProgramCard } from "@/components/program-card";
-import { AutoSpeak, SpeakButton } from "@/components/speech";
+import { useSettings } from "@/components/settings";
+import { AutoSpeak, SpeakButton, useSpeech } from "@/components/speech";
 import { Disclaimer, Page, TopBar } from "@/components/ui";
 import { load, save } from "@/lib/storage";
+import { matchSpoken } from "@/lib/voice-match";
 import { CHECKED_AT, matchPrograms, type Answers, type Support } from "@/lib/welfare";
 
 const REGIONS = [
@@ -161,6 +165,7 @@ export default function FindPage() {
           answers={answers}
           onAnswer={setAnswer}
           onNext={() => go(step + 1)}
+          onBack={step === 0 ? undefined : () => go(step - 1)}
         />
       </Page>
     </>
@@ -173,12 +178,14 @@ function QuestionScreen({
   answers,
   onAnswer,
   onNext,
+  onBack,
 }: {
   q: Question;
   step: number;
   answers: Answers;
   onAnswer: (p: Partial<Answers>) => void;
   onNext: () => void;
+  onBack?: () => void;
 }) {
   const total = QUESTIONS.length;
   const multi = q.multi === true;
@@ -204,10 +211,11 @@ function QuestionScreen({
   };
 
   const speech = `${q.title} ${q.hint ?? ""} ${q.grid ? "" : q.options.map((o) => o.label).join(", ")}`;
+  const voice = useVoiceAnswer({ q, answered, onAnswer, onNext, onBack });
 
   return (
     <div className="flex min-h-[calc(100dvh-6rem)] flex-col">
-      <AutoSpeak text={speech} />
+      {!voice.on && <AutoSpeak text={speech} />}
 
       {/* 단계 표시: 5칸 막대 */}
       <div className="flex gap-1.5" role="progressbar" aria-valuemin={1} aria-valuemax={total} aria-valuenow={step + 1} aria-label="질문 진행">
@@ -231,7 +239,7 @@ function QuestionScreen({
         </div>
         {q.hint && <p className="mt-2 text-[1.05rem] text-muted">{q.hint}</p>}
         <div className="mt-4">
-          <SpeakButton text={speech} label="질문 읽어 주세요" />
+          {voice.on ? <VoicePanel voice={voice} /> : <SpeakButton text={speech} label="질문 읽어 주세요" />}
         </div>
 
         <div
@@ -268,6 +276,160 @@ function QuestionScreen({
           {step + 1 === total ? "결과 보기" : "다음"}
         </button>
       </div>
+    </div>
+  );
+}
+
+// ---- 말로 대답하기 ----
+
+const REGION_SHORT = "서울, 부산, 대구, 인천, 광주, 대전, 울산, 세종, 경기, 강원, 충북, 충남, 전북, 전남, 경북, 경남, 제주";
+
+/** 질문과 선택지를 읽어 준 뒤 듣고, 알아들으면 고르고 다음 질문으로 넘어간다. */
+function useVoiceAnswer({
+  q,
+  answered,
+  onAnswer,
+  onNext,
+  onBack,
+}: {
+  q: Question;
+  answered: boolean;
+  onAnswer: (p: Partial<Answers>) => void;
+  onNext: () => void;
+  onBack?: () => void;
+}) {
+  const { voiceInput, ready } = useSettings();
+  const { say, stop } = useSpeech();
+  const { listen, cancel, listening, heard, supported } = useListen();
+  const [round, setRound] = useState(0); // 마이크 버튼을 누르면 다시 시작
+  const [status, setStatus] = useState<"speaking" | "listening" | "paused" | "done">("speaking");
+  const [error, setError] = useState<ListenError | null>(null);
+  const on = ready && voiceInput && supported;
+
+  const prompt =
+    q.key === "region"
+      ? `${q.title} ${REGION_SHORT} 중에서 말씀해 주세요.`
+      : `${q.title} ${q.hint ?? ""} ${q.options.map((o) => o.label).join(", ")}. 이 중에서 말씀해 주세요.`;
+
+  const apply = useEffectEvent((values: string[]) => {
+    if (q.multi) {
+      onAnswer({ supports: values.includes("none") ? [] : (values as Support[]) });
+    } else {
+      onAnswer({ [q.key]: values[0] } as Partial<Answers>);
+    }
+    const labels = values.map((v) => q.options.find((o) => o.value === v)?.label ?? v);
+    return `${labels.join(", ")}. 고르셨어요.`;
+  });
+  const next = useEffectEvent(() => onNext());
+  const back = useEffectEvent(() => onBack?.());
+  const isAnswered = useEffectEvent(() => answered);
+
+  useEffect(() => {
+    if (!on) return;
+    let cancelled = false;
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+    (async () => {
+      setError(null);
+      setStatus("speaking");
+      await say(prompt);
+      let misses = 0;
+      while (!cancelled) {
+        // 스피커 소리가 마이크에 들어가지 않게 잠깐 쉰다.
+        await wait(250);
+        if (cancelled) return;
+        setStatus("listening");
+        const r = await listen();
+        if (cancelled) return;
+
+        if (!r.ok) {
+          if (r.reason === "aborted") return;
+          if (r.reason !== "silence") {
+            setError(r.reason);
+            setStatus("paused");
+            return;
+          }
+          if (++misses >= 3) break;
+          setStatus("speaking");
+          await say("말씀이 들리지 않았어요. 다시 말씀해 주세요.");
+          continue;
+        }
+
+        const m = matchSpoken(q.key, r.alternatives, q.options);
+        if (m.kind === "answer") {
+          setStatus("done");
+          await say(apply(m.values));
+          if (!cancelled) next();
+          return;
+        }
+        if (m.kind === "command") {
+          if (m.command === "next" && isAnswered()) return next();
+          if (m.command === "back") return back();
+          setStatus("speaking");
+          await say(prompt);
+          continue;
+        }
+        if (++misses >= 3) break;
+        setStatus("speaking");
+        await say(`잘 못 알아들었어요. ${q.key === "region" ? "사시는 시나 도 이름을" : "선택지 중 하나를"} 말씀해 주세요.`);
+      }
+      if (!cancelled) {
+        setStatus("paused");
+        await say("마이크 버튼을 누르고 말씀하시거나, 화면에서 골라 주세요.");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      cancel();
+      stop();
+    };
+  }, [on, q.key, round, prompt, say, stop, listen, cancel, q.options]);
+
+  const retry = () => setRound((n) => n + 1);
+
+  return { on, status, listening, heard, error, retry };
+}
+
+function VoicePanel({ voice }: { voice: ReturnType<typeof useVoiceAnswer> }) {
+  const { status, listening, heard, error, retry } = voice;
+  const label =
+    status === "speaking"
+      ? "질문을 읽고 있어요"
+      : listening
+        ? "듣고 있어요. 말씀해 주세요"
+        : status === "done"
+          ? "알아들었어요"
+          : "눌러서 다시 말하기";
+
+  return (
+    <div className="no-print">
+      <button
+        type="button"
+        onClick={retry}
+        aria-live="polite"
+        className={`inline-flex min-h-14 items-center gap-3 rounded-full py-2 pl-2 pr-6 text-[1.05rem] font-bold transition-colors ${
+          listening ? "bg-lime-ink text-white" : "bg-surface text-foreground hover:bg-surface-strong"
+        }`}
+      >
+        <span className="relative flex h-10 w-10 items-center justify-center rounded-full bg-lime text-lime-ink">
+          {listening && (
+            <span className="absolute inset-0 rounded-full bg-lime motion-safe:animate-ping" aria-hidden="true" />
+          )}
+          <Mic className="relative h-6 w-6" />
+        </span>
+        {label}
+      </button>
+      {heard && (
+        <p className="mt-3 text-[1.05rem] text-muted">
+          들은 말: <span className="font-bold text-foreground">“{heard}”</span>
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="mt-3 rounded-2xl bg-warn-bg p-4 text-[1.05rem] font-bold text-warn-ink">
+          {LISTEN_ERROR_TEXT[error]}
+        </p>
+      )}
     </div>
   );
 }

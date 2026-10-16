@@ -9,6 +9,8 @@ type Settings = {
   largeFont: boolean;
   voiceGuide: boolean; // 켜면 질문·결과 화면을 자동으로 읽어 준다
   rate: SpeechRate;
+  voiceInput: boolean; // 켜면 질문을 읽은 뒤 마이크로 대답을 듣는다
+  micId: string; // 고른 마이크 (빈 값이면 컴퓨터 기본 마이크)
 };
 
 type Ctx = Settings & {
@@ -16,7 +18,7 @@ type Ctx = Settings & {
   update: (patch: Partial<Settings>) => void;
 };
 
-const DEFAULTS: Settings = { largeFont: false, voiceGuide: false, rate: "slow" };
+const DEFAULTS: Settings = { largeFont: false, voiceGuide: false, rate: "slow", voiceInput: false, micId: "" };
 const KEY = "swb:settings";
 
 const SettingsContext = createContext<Ctx>({ ...DEFAULTS, ready: false, update: () => {} });

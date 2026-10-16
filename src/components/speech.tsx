@@ -35,23 +35,54 @@ export function useSpeech() {
     setSpeaking(false);
   }, []);
 
+  // 크롬은 참조가 없는 발화를 지워 onend 를 놓치기도 해서 붙잡아 둔다.
+  const currentRef = useRef<SpeechSynthesisUtterance | null>(null);
+
   const speak = useCallback(
-    (text: string) => {
-      if (!("speechSynthesis" in window)) return;
+    (text: string, onEnd?: () => void) => {
+      if (!("speechSynthesis" in window)) {
+        onEnd?.();
+        return;
+      }
       window.speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(text);
       u.lang = "ko-KR";
       if (voiceRef.current) u.voice = voiceRef.current;
       u.rate = rate === "slow" ? 0.8 : 1;
-      u.onend = () => setSpeaking(false);
-      u.onerror = () => setSpeaking(false);
+      const done = () => {
+        if (currentRef.current === u) {
+          currentRef.current = null;
+          setSpeaking(false);
+        }
+        onEnd?.();
+      };
+      u.onend = done;
+      u.onerror = done;
+      currentRef.current = u;
       setSpeaking(true);
       window.speechSynthesis.speak(u);
     },
     [rate],
   );
 
-  return { speak, stop, speaking, supported };
+  /** 다 읽을 때까지 기다린다. onend 가 오지 않는 브라우저를 위해 시간 제한을 둔다. */
+  const say = useCallback(
+    (text: string) =>
+      new Promise<void>((resolve) => {
+        let finished = false;
+        const finish = () => {
+          if (finished) return;
+          finished = true;
+          clearTimeout(timer);
+          resolve();
+        };
+        const timer = setTimeout(finish, 3000 + text.length * (rate === "slow" ? 330 : 260));
+        speak(text, finish);
+      }),
+    [speak, rate],
+  );
+
+  return { speak, say, stop, speaking, supported };
 }
 
 /** "읽어 주세요" 버튼 */
