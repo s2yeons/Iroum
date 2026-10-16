@@ -41,7 +41,7 @@ export default function Home() {
           >
             <Decor />
             <span className="relative inline-flex rounded-full bg-white/70 px-3 py-0.5 text-sm font-extrabold">
-              질문 5개면 끝나요
+              한 번 말하면 끝나요
             </span>
             <span className="relative mt-3 block text-[1.4rem] font-extrabold leading-snug min-[400px]:pr-28 sm:text-[1.6rem] lg:text-[1.8rem]">
               받을 수 있는

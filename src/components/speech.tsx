@@ -59,7 +59,8 @@ export function useSpeech() {
       const u = new SpeechSynthesisUtterance(toSpoken(text));
       u.lang = "ko-KR";
       if (voiceRef.current) u.voice = voiceRef.current;
-      u.rate = rate === "slow" ? 0.8 : 1;
+      // 어르신이 듣기 편하게 기본보다 느리게 읽는다.
+      u.rate = rate === "slow" ? 0.7 : 0.85;
       const done = (result: SayResult) => {
         if (currentRef.current === u) {
           currentRef.current = null;
@@ -89,7 +90,7 @@ export function useSpeech() {
           clearTimeout(timer);
           resolve(result);
         };
-        const timer = setTimeout(() => finish(), 3000 + text.length * (rate === "slow" ? 330 : 260));
+        const timer = setTimeout(() => finish(), 3000 + text.length * (rate === "slow" ? 380 : 310));
         speak(text, finish);
       }),
     [speak, rate],

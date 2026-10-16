@@ -195,3 +195,89 @@ export function isEcho(transcript: string, reading: string, options: Option[]): 
   );
   return !single;
 }
+
+// ---- 한 번에 말한 문장에서 여러 정보를 뽑기 ----
+// 예: "일흔두 살이고 혼자 살아요. 형편이 어렵고 기초연금 받아요."
+// 질문 하나에 대한 대답보다 말이 길어서, 엉뚱한 것을 잡지 않게 더 좁은 말만 본다.
+// (예: "50만 원" 을 나이로, "기초연금은 안 받아요" 를 받는 것으로 보지 않게)
+
+export type Extracted = {
+  age?: string;
+  income?: string;
+  supports?: string[];
+  household?: string;
+  region?: string;
+};
+
+/** 숫자 나이는 "살·세·대" 같은 말이 붙어야 나이로 본다 (돈·날짜와 헷갈리지 않게) */
+function parseAgeStrict(t: string): number | null {
+  const unit = "(?:살|세|대|넘|이상|쯤|정도)";
+  const d = t.match(new RegExp(`(\\d{2,3})${unit}`));
+  if (d) {
+    const n = Number(d[1]);
+    if (n >= 10 && n <= 120) return n;
+  }
+  const s = t.match(new RegExp(`([일이삼사오육륙칠팔구])?십([일이삼사오육륙칠팔구])?${unit}`));
+  if (s) return (s[1] ? SINO[s[1]] : 1) * 10 + (s[2] ? SINO[s[2]] : 0);
+  for (const [word, tens] of Object.entries(NATIVE_TENS)) {
+    const i = t.indexOf(word);
+    if (i < 0) continue;
+    const one = NATIVE_ONES.find(([w]) => t.slice(i + word.length).startsWith(w));
+    return tens + (one ? one[1] : 0);
+  }
+  return null;
+}
+
+const INCOME_STRICT: [string, RegExp][] = [
+  ["basic", /기초생활|생활수급|기초수급|(?<!연금)수급자/],
+  ["low", /어렵|어려워|어려운|힘들|힘든|넉넉하지|넉넉치|넉넉지|빠듯|가난|형편이?안|돈이?없|여유(?:가|는)?없|벌이가?없|수입이?없|소득이?없|부족/],
+  ["mid", /보통|여유(?:가|는)?있|넉넉해|넉넉한편|살만|괜찮은편|먹고살만/],
+];
+
+const SUPPORT_TERMS: [string, RegExp][] = [
+  ["basic_pension", /기초연금|노령연금|노인연금/g],
+  // 기초생활수급자는 생계·의료·주거급여 중 하나를 받는 분이다
+  ["livelihood", /생계급여|의료급여|주거급여|생계비|기초생활수급|기초수급|생활수급/g],
+  ["ltc", /장기요양|요양등급|등급받/g],
+];
+const NEGATED_AFTER = /^.{0,6}?(?:안받|못받|없|아니|안나|안해)/;
+const NOTHING = /받는(?:것|거|게|지원)?(?:은|는)?없|아무것도안받|아무것도없|지원(?:은|는)?(?:하나도)?없|받는건없|안받고있/;
+
+export function extractAll(raw: string): Extracted {
+  const t = norm(raw);
+  const out: Extracted = {};
+
+  const n = parseAgeStrict(t);
+  if (n !== null) out.age = ageBand(n);
+
+  const inc = INCOME_STRICT.find(([, re]) => re.test(t));
+  if (inc) out.income = inc[0];
+
+  const positive = new Set<string>();
+  let negated = false;
+  for (const [value, re] of SUPPORT_TERMS) {
+    for (const m of t.matchAll(re)) {
+      if (NEGATED_AFTER.test(t.slice((m.index ?? 0) + m[0].length))) negated = true;
+      else positive.add(value);
+    }
+  }
+  if (positive.size > 0) out.supports = [...positive];
+  else if (negated || NOTHING.test(t)) out.supports = [];
+
+  const hh = pick(t, HOUSEHOLD);
+  if (hh) out.household = hh;
+
+  // 사는 곳은 "서울 살아요", "부산에서 사는"처럼 산다는 말이 붙을 때만 ("경기가 어려워" 와 헷갈리지 않게)
+  for (const [region, words] of Object.entries(REGION_WORDS)) {
+    if (words.some((w) => new RegExp(`${w}(?:특별자치시|특별자치도|특별시|광역시|도|시)?(?:에서|에)?(?:살|사는|사라|삽|거주)`).test(t))) {
+      out.region = region;
+      break;
+    }
+  }
+  return out;
+}
+
+/** "잘 모르겠어요"처럼 아무것도 모른다는 대답인지 */
+export function saysDontKnow(raw: string) {
+  return has(norm(raw), UNKNOWN);
+}
